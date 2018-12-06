@@ -8,65 +8,58 @@ use strict;
 use warnings;
 use Log::ger;
 
+our $OO_FRAMEWORK;
+
 BEGIN {
-    if ($INC{'Perinci/CmdLine/Classic.pm'}) {
+    $OO_FRAMEWORK //= 'Mo';
+    if ($OO_FRAMEWORK eq 'Moo') {
         require Moo; Moo->import;
     } else {
         require Mo; Mo->import(qw(build default));
     }
 }
 
-has actions => (is=>'rw');
-has common_opts => (is=>'rw');
-has completion => (is=>'rw');
-has default_subcommand => (is=>'rw');
-has get_subcommand_from_arg => (is=>'rw', default=>1);
-has auto_abbrev_subcommand => (is=>'rw', default=>1);
+has summary => (is=>'rw');
 has description => (is=>'rw');
-has exit => (is=>'rw', default=>1);
-has formats => (is=>'rw');
-has default_format => (is=>'rw');
-has pass_cmdline_object => (is=>'rw', default=>0);
-has per_arg_json => (is=>'rw');
-has per_arg_yaml => (is=>'rw');
-has program_name => (
-    is=>'rw',
-    default => sub {
-        my $pn = $ENV{PERINCI_CMDLINE_PROGRAM_NAME};
-        if (!defined($pn)) {
-            $pn = $0; $pn =~ s!.+/!!;
-        }
-        $pn;
-    });
+has tags => (is=>'rw');
+has script_name => (is=>'rw');
+
+# url & subcommands (urls)
+has url => (is=>'rw');
+has subcommands => (is=>'rw');
+
+has actions => (is=>'rw');
+
+# riap
 has riap_version => (is=>'rw', default=>1.1);
 has riap_client => (is=>'rw');
 has riap_client_args => (is=>'rw');
-has subcommands => (is=>'rw');
-has summary => (is=>'rw');
-has tags => (is=>'rw');
-has url => (is=>'rw');
+
+# logging
 has log => (is=>'rw', default => 0);
 has log_level => (is=>'rw');
 
-has read_env => (is=>'rw', default=>1);
-has env_name => (
-    is => 'rw',
-    lazy => 1,
-    default => sub {
-        my $self = shift;
-        __default_env_name($self->program_name);
-    },
-);
+# env
+# has read_env => (is=>'rw', default=>1);
+# has env_name => (
+#     is => 'rw',
+#     lazy => 1,
+#     default => sub {
+#         my $self = shift;
+#         __default_env_name($self->script_name);
+#     },
+# );
 
-has read_config => (is=>'rw', default=>1);
-has config_filename => (is=>'rw');
-has config_dirs => (
-    is=>'rw',
-    default => sub {
-        require Perinci::CmdLine::Util::Config;
-        Perinci::CmdLine::Util::Config::get_default_config_dirs();
-    },
-);
+# config
+# has read_config => (is=>'rw', default=>1);
+# has config_filename => (is=>'rw');
+# has config_dirs => (
+#     is=>'rw',
+#     default => sub {
+#         require Perinci::CmdLine::Util::Config;
+#         Perinci::CmdLine::Util::Config::get_default_config_dirs();
+#     },
+# );
 
 has cleanser => (
     is => 'rw',
@@ -77,301 +70,6 @@ has cleanser => (
     },
 );
 has use_cleanser => (is=>'rw', default=>1);
-
-has extra_urls_for_version => (is=>'rw');
-
-has skip_format => (is=>'rw');
-
-has use_utf8 => (
-    is=>'rw',
-    default => sub {
-        $ENV{UTF8} // 0;
-    },
-);
-
-has default_dry_run => (
-    is=>'rw',
-    default => 0,
-);
-
-# role: requires 'default_prompt_template'
-
-# role: requires 'hook_before_run'
-# role: requires 'hook_before_parse_argv'
-# role: requires 'hook_before_read_config_file'
-# role: requires 'hook_config_file_section'
-# role: requires 'hook_after_read_config_file'
-# role: requires 'hook_after_get_meta'
-# role: requires 'hook_after_parse_argv'
-# role: requires 'hook_before_action'
-# role: requires 'hook_format_row' (for action=call)
-# role: requires 'hook_after_action'
-# role: requires 'hook_format_result'
-# role: requires 'hook_display_result'
-# role: requires 'hook_after_run'
-
-# we put common stuffs here, but PC::Classic's final version will differ from
-# PC::Lite's in several aspects: translation, supported output formats,
-# PC::Classic currently adds some extra keys, some options are not added by
-# PC::Lite (e.g. history/undo stuffs).
-our %copts = (
-
-    version => {
-        getopt  => "version|v",
-        summary => "Display program's version and exit",
-        usage   => "--version (or -v)",
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{action} = 'version';
-            $r->{skip_parse_subcommand_argv} = 1;
-        },
-    },
-
-    help => {
-        getopt  => 'help|h|?',
-        summary => 'Display help message and exit',
-        usage   => "--help (or -h, -?)",
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{action} = 'help';
-            $r->{skip_parse_subcommand_argv} = 1;
-        },
-        order => 0, # high
-    },
-
-    format => {
-        getopt  => 'format=s',
-        summary => 'Choose output format, e.g. json, text',
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{format} = $val;
-        },
-        default => undef,
-        tags => ['category:output'],
-        is_settable_via_config => 1,
-    },
-    json => {
-        getopt  => 'json',
-        summary => 'Set output format to json',
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{format} = (-t STDOUT) ? 'json-pretty' : 'json';
-        },
-        tags => ['category:output'],
-    },
-
-    naked_res => {
-        getopt  => 'naked-res!',
-        summary => 'When outputing as JSON, strip result envelope',
-        'summary.alt.bool.not' => 'When outputing as JSON, add result envelope',
-        description => <<'_',
-
-By default, when outputing as JSON, the full enveloped result is returned, e.g.:
-
-    [200,"OK",[1,2,3],{"func.extra"=>4}]
-
-The reason is so you can get the status (1st element), status message (2nd
-element) as well as result metadata/extra result (4th element) instead of just
-the result (3rd element). However, sometimes you want just the result, e.g. when
-you want to pipe the result for more post-processing. In this case you can use
-`--naked-res` so you just get:
-
-    [1,2,3]
-
-_
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{naked_res} = $val ? 1:0;
-        },
-        default => 0,
-        tags => ['category:output'],
-        is_settable_via_config => 1,
-    },
-
-    subcommands => {
-        getopt  => 'subcommands',
-        summary => 'List available subcommands',
-        usage   => "--subcommands",
-        show_in_usage => sub {
-            my ($self, $r) = @_;
-            !$r->{subcommand_name};
-        },
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{action} = 'subcommands';
-            $r->{skip_parse_subcommand_argv} = 1;
-        },
-    },
-
-    # 'cmd=SUBCOMMAND_NAME' can be used to select other subcommands when
-    # default_subcommand is in effect.
-    cmd => {
-        getopt  => "cmd=s",
-        summary => 'Select subcommand',
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{subcommand_name} = $val;
-            $r->{subcommand_name_from} = '--cmd';
-        },
-        completion => sub {
-            require Complete::Util;
-            my %args = @_;
-            my $cmdline = $args{cmdline};
-            Complete::Util::complete_array_elem(
-                array => [keys %{ $cmdline->list_subcommands }],
-                word  => $args{word},
-                ci    => 1,
-            );
-        },
-    },
-
-    config_path => {
-        getopt  => 'config-path=s@',
-        schema  => ['array*', of => 'str*'],
-        'x.schema.element_entity' => 'filename',
-        summary => 'Set path to configuration file',
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{config_paths} //= [];
-            push @{ $r->{config_paths} }, $val;
-        },
-        tags => ['category:configuration'],
-    },
-    no_config => {
-        getopt  => 'no-config',
-        summary => 'Do not use any configuration file',
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{read_config} = 0;
-        },
-        tags => ['category:configuration'],
-    },
-    no_env => {
-        getopt  => 'no-env',
-        summary => 'Do not read environment for default options',
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{read_env} = 0;
-        },
-        tags => ['category:environment'],
-    },
-    config_profile => {
-        getopt  => 'config-profile=s',
-        summary => 'Set configuration profile to use',
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{config_profile} = $val;
-        },
-        completion => sub {
-            # return list of profiles in read config file
-
-            my %args = @_;
-            my $word    = $args{word} // '';
-            my $cmdline = $args{cmdline};
-            my $r       = $args{r};
-
-            # we are not called from cmdline, bail (actually we might want to
-            # return list of programs anyway, but we want to read the value of
-            # bash_global_dir et al)
-            return undef unless $cmdline;
-
-            # since this is common option, at this point we haven't parsed
-            # argument or even read config file. let's parse argv first (argv
-            # might set --config-path). then read the config files.
-            {
-                # this is not activated yet
-                $r->{read_config} = 1;
-
-                my $res = $cmdline->parse_argv($r);
-                #return undef unless $res->[0] == 200;
-
-                # parse_argv() might decide that it doesn't need to read config
-                # files (e.g. in the case of program having a subcommand and
-                # user does not specify any subcommand name, then it will
-                # shortcut to --help and set skip_parse_subcommand_argv=1). we
-                # don't want that here, we want to force reading config files:
-                $cmdline->_read_config($r) unless $r->{config};
-            }
-
-            # we are not reading any config file, return empty list
-            return [] unless $r->{config};
-
-            my @profiles;
-            for my $section (keys %{$r->{config}}) {
-                my %keyvals;
-                for my $word (split /\s+/, ($section eq 'GLOBAL' ? '' : $section)) {
-                    if ($word =~ /(.+)=(.*)/) {
-                        $keyvals{$1} = $2;
-                    } else {
-                        # old syntax, will be removed sometime in the future
-                        $keyvals{subcommand} = $word;
-                    }
-                }
-                if (defined(my $p = $keyvals{profile})) {
-                    push @profiles, $p unless grep {$_ eq $p} @profiles;
-                }
-            }
-
-            require Complete::Util;
-            Complete::Util::complete_array_elem(
-                array=>\@profiles, word=>$word, ci=>1);
-        },
-        tags => ['category:configuration'],
-    },
-
-    # since the cmdline opts is consumed, Log::Any::App doesn't see this. we
-    # currently work around this via setting env.
-    log_level => {
-        getopt  => 'log-level=s',
-        summary => 'Set log level',
-        schema  => ['str*' => in => [
-            qw/trace debug info warn warning error fatal/]],
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{log_level} = $val;
-        },
-        is_settable_via_config => 1,
-        tags => ['category:logging'],
-    },
-    trace => {
-        getopt  => "trace",
-        summary => "Shortcut for --log-level=trace",
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{log_level} = 'trace';
-        },
-        tags => ['category:logging'],
-    },
-    debug => {
-        getopt  => "debug",
-        summary => "Shortcut for --log-level=debug",
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{log_level} = 'debug';
-        },
-        tags => ['category:logging'],
-    },
-    verbose => {
-        getopt  => "verbose",
-        summary => "Shortcut for --log-level=info",
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{log_level} = 'info';
-            $r->{_help_verbose} = 1;
-        },
-        tags => ['category:logging'],
-    },
-    quiet => {
-        getopt  => "quiet",
-        summary => "Shortcut for --log-level=error",
-        handler => sub {
-            my ($go, $val, $r) = @_;
-            $r->{log_level} = 'error';
-        },
-        tags => ['category:logging'],
-    },
-
-);
 
 sub __default_env_name {
     my ($prog) = @_;
@@ -393,6 +91,8 @@ sub hook_after_read_config_file {}
 
 sub hook_before_action {}
 
+sub hook_after_get_meta {}
+
 sub hook_after_action {}
 
 sub get_meta {
@@ -405,14 +105,6 @@ sub get_meta {
     log_trace("[pericmd] Running hook_after_get_meta ...");
     $self->hook_after_get_meta($r);
     $meta;
-}
-
-sub get_program_and_subcommand_name {
-    my ($self, $r) = @_;
-    my $res = ($self->program_name // "") . " " .
-        ($r->{subcommand_name} // "");
-    $res =~ s/\s+$//;
-    $res;
 }
 
 sub get_subcommand_data {
@@ -452,24 +144,6 @@ sub status2exitcode {
     my ($self, $status) = @_;
     return 0 if $status =~ /^2..|304/;
     $status - 300;
-}
-
-sub _detect_completion {
-    my ($self, $r) = @_;
-
-    if ($ENV{COMP_SHELL}) {
-        $r->{shell} = $ENV{COMP_SHELL};
-        return 1;
-    } elsif ($ENV{COMP_LINE}) {
-        $r->{shell} = 'bash';
-        return 1;
-    } elsif ($ENV{COMMAND_LINE}) {
-        $r->{shell} = 'tcsh';
-        return 1;
-    }
-
-    $r->{shell} //= 'bash';
-    0;
 }
 
 sub _read_env {
@@ -527,7 +201,10 @@ sub do_dump {
 
     # additional information, because scripts often put their metadata in 'main'
     # package
-    $self->{'x.main.spec'} = \%main::SPEC;
+    {
+        no warnings 'once';
+        $self->{'x.main.spec'} = \%main::SPEC;
+    }
 
     my $dump = join(
         "",
@@ -790,285 +467,6 @@ sub __find_similar_go_opts {
         __find_similar_strings($opt, \@ospecs, "cut");
 }
 
-sub _parse_argv1 {
-    my ($self, $r) = @_;
-
-    # parse common_opts which potentially sets subcommand
-    my @go_spec;
-    {
-        # one small downside for this is that we cannot do autoabbrev here,
-        # because we're not yet specifying all options here.
-
-        require Getopt::Long;
-        my $old_go_conf = Getopt::Long::Configure(
-            'pass_through', 'no_ignore_case', 'no_auto_abbrev',
-            'no_getopt_compat', 'gnu_compat', 'bundling');
-        my $co = $self->common_opts // {};
-        for my $k (keys %$co) {
-            push @go_spec, $co->{$k}{getopt} => sub {
-                my ($go, $val) = @_;
-                $co->{$k}{handler}->($go, $val, $r);
-            };
-        }
-        #log_trace("\@ARGV before parsing common opts: %s", \@ARGV);
-        Getopt::Long::GetOptions(@go_spec);
-        Getopt::Long::Configure($old_go_conf);
-        #log_trace("\@ARGV after  parsing common opts: %s", \@ARGV);
-    }
-
-    # select subcommand and fill subcommand data
-    {
-        my $scn = $r->{subcommand_name};
-        my $scn_from = $r->{subcommand_name_from};
-        if (!defined($scn) && defined($self->{default_subcommand})) {
-            # get from default_subcommand
-            if ($self->get_subcommand_from_arg == 1) {
-                $scn = $self->{default_subcommand};
-                $scn_from = 'default_subcommand';
-            } elsif ($self->get_subcommand_from_arg == 2 && !@ARGV) {
-                $scn = $self->{default_subcommand};
-                $scn_from = 'default_subcommand';
-            }
-        }
-        if (!defined($scn) && $self->{subcommands} && @ARGV) {
-            # get from first command-line arg
-            if ($ARGV[0] =~ /\A-/) {
-                if ($r->{in_completion}) {
-                    $scn = shift @ARGV;
-                    $scn_from = 'arg';
-                } else {
-                    my $suggestion = '';
-                    my @similar = __find_similar_go_opts($ARGV[0], \@go_spec);
-                    $suggestion = " (perhaps you meant ".
-                        join("/", @similar)."?)" if @similar;
-                    die [400, "Unknown option: $ARGV[0]".$suggestion];
-                }
-            } else {
-                $scn = shift @ARGV;
-                $scn_from = 'arg';
-            }
-        }
-
-        my $scd;
-        if (defined $scn) {
-            $scd = $self->get_subcommand_data($scn);
-            unless ($r->{in_completion}) {
-                unless ($scd) {
-                    my $scs = $self->list_subcommands;
-                    if ($self->auto_abbrev_subcommand) {
-                        # check that subcommand is an unambiguous abbreviation
-                        # of an existing subcommand
-                        my $num_matches = 0;
-                        my $complete_scn;
-                        for (keys %$scs) {
-                            if (index($_, $scn) == 0) {
-                                $num_matches++;
-                                $complete_scn = $_;
-                                last if $num_matches > 1;
-                            }
-                        }
-                        if ($num_matches == 1) {
-                            $scn = $complete_scn;
-                            $scd = $self->get_subcommand_data($scn);
-                            goto L1;
-                        }
-                    }
-                    # provide suggestion of probably mistyped subcommand to user
-                    my @similar =
-                        __find_similar_strings($scn, [keys %$scs]);
-                    my $suggestion = '';
-                    $suggestion = " (perhaps you meant ".
-                        join("/", @similar)."?)" if @similar;
-                    die [500, "Unknown subcommand: $scn".$suggestion];
-                }
-            }
-        } elsif (!$r->{action} && $self->{subcommands}) {
-            # program has subcommands but user doesn't specify any subcommand,
-            # or specific action. display help instead.
-            $r->{action} = 'help';
-            $r->{skip_parse_subcommand_argv} = 1;
-        } else {
-            $scn = '';
-            $scd = {
-                url => $self->url,
-                summary => $self->summary,
-                description => $self->description,
-                pass_cmdline_object => $self->pass_cmdline_object,
-                tags => $self->tags,
-            };
-        }
-      L1:
-        $r->{subcommand_name} = $scn;
-        $r->{subcommand_name_from} = $scn_from;
-        $r->{subcommand_data} = $scd;
-    }
-
-    $r->{_parse_argv1_done} = 1;
-}
-
-sub _parse_argv2 {
-    require Perinci::CmdLine::Util::Config;
-
-    my ($self, $r) = @_;
-
-    my %args;
-
-    if ($r->{read_env}) {
-        my $env_words = $self->_read_env($r);
-        unshift @ARGV, @$env_words;
-    }
-
-    # parse argv for per-subcommand command-line opts
-    if ($r->{skip_parse_subcommand_argv}) {
-        return [200, "OK (subcommand options parsing skipped)"];
-    } else {
-        my $scd = $r->{subcommand_data};
-        if ($r->{meta} && !$self->{subcommands}) {
-            # we have retrieved meta, no need to get it again
-        } else {
-            $self->get_meta($r, $scd->{url});
-        }
-
-        # first fill in from subcommand specification
-        if ($scd->{args}) {
-            $args{$_} = $scd->{args}{$_} for keys %{ $scd->{args} };
-        }
-
-        # then read from configuration
-        if ($r->{read_config}) {
-
-            log_trace("[pericmd] Running hook_before_read_config_file ...");
-            $self->hook_before_read_config_file($r);
-
-            $self->_read_config($r) unless $r->{config};
-
-            log_trace("[pericmd] Running hook_after_read_config_file ...");
-            $self->hook_after_read_config_file($r);
-
-            my $res = Perinci::CmdLine::Util::Config::get_args_from_config(
-                r                  => $r,
-                config             => $r->{config},
-                args               => \%args,
-                program_name       => $self->program_name,
-                subcommand_name    => $r->{subcommand_name},
-                config_profile     => $r->{config_profile},
-                common_opts        => $self->common_opts,
-                meta               => $r->{meta},
-                meta_is_normalized => 1,
-            );
-            die $res unless $res->[0] == 200;
-            log_trace("[pericmd] args after reading config files: %s",
-                         \%args);
-            my $found = $res->[3]{'func.found'};
-            if (defined($r->{config_profile}) && !$found &&
-                    defined($r->{read_config_files}) &&
-                        @{$r->{read_config_files}} &&
-                            !$r->{ignore_missing_config_profile_section}) {
-                return [412, "Profile '$r->{config_profile}' not found ".
-                            "in configuration file"];
-            }
-
-        }
-
-        # finally get from argv
-
-        # since get_args_from_argv() doesn't pass $r, we need to wrap it
-        my $copts = $self->common_opts;
-        my %old_handlers;
-        for (keys %$copts) {
-            my $h = $copts->{$_}{handler};
-            $copts->{$_}{handler} = sub {
-                my ($go, $val) = @_;
-                $h->($go, $val, $r);
-            };
-            $old_handlers{$_} = $h;
-        }
-
-        my $has_cmdline_src;
-        for my $ak (keys %{$r->{meta}{args} // {}}) {
-            my $av = $r->{meta}{args}{$ak};
-            if ($av->{cmdline_src}) {
-                $has_cmdline_src = 1;
-                last;
-            }
-        }
-
-        require Perinci::Sub::GetArgs::Argv;
-        my $ga_res = Perinci::Sub::GetArgs::Argv::get_args_from_argv(
-            argv                => \@ARGV,
-            args                => \%args,
-            meta                => $r->{meta},
-            meta_is_normalized  => 1,
-            allow_extra_elems   => $has_cmdline_src ? 1:0,
-            per_arg_json        => $self->{per_arg_json},
-            per_arg_yaml        => $self->{per_arg_yaml},
-            common_opts         => $copts,
-            strict              => $r->{in_completion} ? 0:1,
-            (ggls_res            => $r->{_ggls_res}) x defined($r->{_ggls_res}),
-            on_missing_required_args => sub {
-                my %a = @_;
-
-                my ($an, $aa, $as) = ($a{arg}, $a{args}, $a{spec});
-                my $src = $as->{cmdline_src} // '';
-
-                # we only get from stdin if stdin is piped
-                $src = '' if $src eq 'stdin_or_args' && -t STDIN;
-
-                if ($src && $as->{req}) {
-                    # don't complain, we will fill argument from other source
-                    return 1;
-                } else {
-                    # we have no other sources, so we complain about missing arg
-                    return 0;
-                }
-            },
-        );
-
-        return $ga_res unless $ga_res->[0] == 200;
-
-        # wrap stream arguments with iterator
-        my $args_p = $r->{meta}{args} // {};
-        for my $arg (keys %{$ga_res->[2]}) {
-            next unless $args_p->{$arg};
-            next unless $args_p->{$arg}{stream};
-            for ($ga_res->[2]{$arg}) {
-                $_ = ref $_ eq 'ARRAY' ? __array_iter($_) : __list_iter($_);
-            }
-        }
-
-        # restore
-        for (keys %$copts) {
-            $copts->{$_}{handler} = $old_handlers{$_};
-        }
-
-        return $ga_res;
-    }
-}
-
-sub parse_argv {
-    my ($self, $r) = @_;
-
-    log_trace("[pericmd] Parsing \@ARGV: %s", \@ARGV);
-
-    # we parse argv twice. the first parse is with common_opts only so we're
-    # able to catch --help, --version, etc early without having to know about
-    # subcommands. two reasons for this: sometimes we need to get subcommand
-    # name *from* cmdline opts (e.g. --cmd) and thus it's a chicken-and-egg
-    # problem. second, it's faster because we don't have to load Riap client and
-    # request the meta through it (especially in the case of remote URL).
-    #
-    # the second parse is after ge get subcommand name and the function
-    # metadata. we can parse the remaining argv to get function arguments.
-    #
-    # note that when doing completion we're not using this algorithem and only
-    # parse argv once. this is to make completion work across common- and
-    # per-subcommand opts, e.g. --he<tab> resulting in --help (common opt) as
-    # well as --height (function argument).
-
-    $self->_parse_argv1($r) unless $r->{_parse_argv1_done};
-    $self->_parse_argv2($r);
-}
-
 sub __gen_iter {
     require Data::Sah::Util::Type;
 
@@ -1113,343 +511,6 @@ sub __gen_iter {
             }
             $l;
         };
-    }
-}
-
-# parse cmdline_src argument spec properties for filling argument value from
-# file and/or stdin. currently does not support argument submetadata.
-sub parse_cmdline_src {
-    my ($self, $r) = @_;
-
-    my $action = $r->{action};
-    my $meta   = $r->{meta};
-
-    my $url = $r->{subcommand_data}{url} // $self->{url} // '';
-    my $is_network = $url =~ m!^(https?|riap[^:]+):!;
-
-    # handle cmdline_src
-    if ($action eq 'call') {
-        my $args_p = $meta->{args} // {};
-        my $stdin_seen;
-        for my $an (sort {
-            my $csa  = $args_p->{$a}{cmdline_src};
-            my $csb  = $args_p->{$b}{cmdline_src};
-            my $posa = $args_p->{$a}{pos} // 9999;
-            my $posb = $args_p->{$b}{pos} // 9999;
-
-            # first, always put stdin_line before stdin / stdin_or_files
-            (
-                !$csa || !$csb ? 0 :
-                    $csa eq 'stdin_line' && $csb eq 'stdin_line' ? 0 :
-                    $csa eq 'stdin_line' && $csb =~ /^(stdin|stdin_or_files?|stdin_or_args)/ ? -1 :
-                    $csb eq 'stdin_line' && $csa =~ /^(stdin|stdin_or_files?|stdin_or_args)/ ? 1 : 0
-            )
-            ||
-
-            # then order by pos
-            ($posa <=> $posb)
-
-            ||
-            # then by name
-            ($a cmp $b)
-        } keys %$args_p) {
-            #log_trace("TMP: handle cmdline_src for arg=%s", $an);
-            my $as = $args_p->{$an};
-            my $src = $as->{cmdline_src};
-            my $type = $as->{schema}[0]
-                or die "BUG: No schema is defined for arg '$an'";
-            # Riap::HTTP currently does not support streaming input
-            my $do_stream = $as->{stream} && $url !~ /^https?:/;
-            if ($src) {
-                die [531,
-                     "Invalid 'cmdline_src' value for argument '$an': $src"]
-                    unless $src =~ /\A(stdin|file|stdin_or_files?|stdin_or_args|stdin_line)\z/;
-                die [531,
-                     "Sorry, argument '$an' is set cmdline_src=$src, but type ".
-                         "is not str/buf/array, only those are supported now"]
-                    unless $do_stream || $type =~ /\A(str|buf|array)\z/; # XXX stdin_or_args needs array only, not str/buf
-
-                if ($src =~ /\A(stdin|stdin_or_files?|stdin_or_args)\z/) {
-                    die [531, "Only one argument can be specified ".
-                             "cmdline_src stdin/stdin_or_file/stdin_or_files/stdin_or_args"]
-                        if $stdin_seen++;
-                }
-                my $is_ary = $type eq 'array';
-                if ($src eq 'stdin_line' && !exists($r->{args}{$an})) {
-                    require Perinci::Object;
-                    my $term_readkey_available = eval { require Term::ReadKey; 1 };
-                    my $prompt = Perinci::Object::rimeta($as)->langprop('cmdline_prompt') //
-                        sprintf($self->default_prompt_template, $an);
-                    print $prompt;
-                    my $iactive = (-t STDOUT);
-                    Term::ReadKey::ReadMode('noecho')
-                          if $term_readkey_available && $iactive && $as->{is_password};
-                    chomp($r->{args}{$an} = <STDIN>);
-                    do { print "\n"; Term::ReadKey::ReadMode(0) if $term_readkey_available }
-                        if $iactive && $as->{is_password};
-                    $r->{args}{"-cmdline_src_$an"} = 'stdin_line';
-                } elsif ($src eq 'stdin' || $src eq 'file' &&
-                        ($r->{args}{$an}//"") eq '-') {
-                    die [400, "Argument $an must be set to '-' which means ".
-                             "from stdin"]
-                        if defined($r->{args}{$an}) &&
-                            $r->{args}{$an} ne '-';
-                    #log_trace("Getting argument '$an' value from stdin ...");
-                    $r->{args}{$an} = $do_stream ?
-                        __gen_iter(\*STDIN, $as, $an) :
-                            $is_ary ? [<STDIN>] :
-                                do {local $/; ~~<STDIN>};
-                    $r->{args}{"-cmdline_src_$an"} = 'stdin';
-                } elsif ($src eq 'stdin_or_file' || $src eq 'stdin_or_files') {
-                    # push back argument value to @ARGV so <> can work to slurp
-                    # all the specified files
-                    local @ARGV = @ARGV;
-                    unshift @ARGV, $r->{args}{$an}
-                        if defined $r->{args}{$an};
-
-                    # with stdin_or_file, we only accept one file
-                    splice @ARGV, 1
-                        if @ARGV > 1 && $src eq 'stdin_or_file';
-
-                    #log_trace("Getting argument '$an' value from ".
-                    #                 "$src, \@ARGV=%s ...", \@ARGV);
-
-                    # perl doesn't seem to check files, so we check it here
-                    for (@ARGV) {
-                        next if $_ eq '-';
-                        die [500, "Can't read file '$_': $!"] if !(-r $_);
-                    }
-
-                    $r->{args}{"-cmdline_srcfilenames_$an"} = [@ARGV];
-                    $r->{args}{$an} = $do_stream ?
-                        __gen_iter(\*ARGV, $as, $an) :
-                            $is_ary ? [<>] :
-                                do {local $/; ~~<>};
-                    $r->{args}{"-cmdline_src_$an"} = $src;
-                } elsif ($src eq 'stdin_or_args' && !(-t STDIN)) {
-                    unless (defined($r->{args}{$an})) {
-                        $r->{args}{$an} = $do_stream ?
-                            __gen_iter(\*STDIN, $as, $an) :
-                            $is_ary ? [map {chomp;$_} <STDIN>] :
-                                do {local $/; ~~<STDIN>};
-                    }
-                } elsif ($src eq 'file') {
-                    unless (exists $r->{args}{$an}) {
-                        if ($as->{req}) {
-                            die [400,
-                                 "Please specify filename for argument '$an'"];
-                        } else {
-                            next;
-                        }
-                    }
-                    die [400, "Please specify filename for argument '$an'"]
-                        unless defined $r->{args}{$an};
-                    #log_trace("Getting argument '$an' value from ".
-                    #                "file ...");
-                    my $fh;
-                    my $fname = $r->{args}{$an};
-                    unless (open $fh, "<", $fname) {
-                        die [500, "Can't open file '$fname' for argument '$an'".
-                                 ": $!"];
-                    }
-                    $r->{args}{$an} = $do_stream ?
-                        __gen_iter($fh, $as, $an) :
-                            $is_ary ? [<$fh>] :
-                                do { local $/; ~~<$fh> };
-                    close $fh;
-                    $r->{args}{"-cmdline_src_$an"} = 'file';
-                    $r->{args}{"-cmdline_srcfilenames_$an"} = [$fname];
-                }
-            }
-
-            # encode to base64 if binary and we want to cross network (because
-            # it's usually JSON)
-            if ($self->riap_version == 1.2 && $is_network &&
-                    defined($r->{args}{$an}) && $args_p->{$an}{schema} &&
-                        $args_p->{$an}{schema}[0] eq 'buf' &&
-                            !$r->{args}{"$an:base64"}) {
-                require MIME::Base64;
-                $r->{args}{"$an:base64"} =
-                    MIME::Base64::encode_base64($r->{args}{$an}, "");
-                delete $r->{args}{$an};
-            }
-        } # for arg
-    }
-    #log_trace("args after cmdline_src is processed: %s", $r->{args});
-}
-
-# determine filehandle to output to (normally STDOUT, but we can also send to a
-# pager, or a temporary file when sending to viewer (the difference between
-# pager and viewer: when we page we use pipe, when we view we write to temporary
-# file then open the viewer. viewer settings override pager settings.
-sub select_output_handle {
-    my ($self, $r) = @_;
-
-    my $resmeta = $r->{res}[3] // {};
-
-    my $handle;
-  SELECT_HANDLE:
-    {
-        # view result using external program
-        if ($ENV{VIEW_RESULT} // $resmeta->{"cmdline.view_result"}) {
-            my $viewer = $resmeta->{"cmdline.viewer"} // $ENV{VIEWER} //
-                $ENV{BROWSER};
-            last if defined $viewer && !$viewer; # ENV{VIEWER} can be set 0/'' to disable viewing result using external program
-            die [500, "No VIEWER program set"] unless defined $viewer;
-            $r->{viewer} = $viewer;
-            require File::Temp;
-            my $filename;
-            ($handle, $filename) = File::Temp::tempfile();
-            $r->{viewer_temp_path} = $filename;
-        }
-
-        if ($ENV{PAGE_RESULT} // $resmeta->{"cmdline.page_result"}) {
-            require File::Which;
-            my $pager = $resmeta->{"cmdline.pager"} //
-                $ENV{PAGER};
-            unless (defined $pager) {
-                $pager = "less -FRSX" if File::Which::which("less");
-            }
-            unless (defined $pager) {
-                $pager = "more" if File::Which::which("more");
-            }
-            unless (defined $pager) {
-                die [500, "Can't determine PAGER"];
-            }
-            last unless $pager; # ENV{PAGER} can be set 0/'' to disable paging
-            #log_trace("Paging output using %s", $pager);
-            ## no critic (InputOutput::RequireBriefOpen)
-            open $handle, "| $pager";
-        }
-        $handle //= \*STDOUT;
-    }
-    $r->{output_handle} = $handle;
-}
-
-sub save_output {
-    my ($self, $r, $dir) = @_;
-    $dir //= $ENV{PERINCI_CMDLINE_OUTPUT_DIR};
-
-    unless (-d $dir) {
-        warn "Can't save output to $dir: doesn't exist or not a directory,skipped saving program output";
-        return;
-    }
-
-    my $time = do {
-        if (eval { require Time::HiRes; 1 }) {
-            Time::HiRes::time();
-        } else {
-            time();
-        }
-    };
-
-    my $fmttime = do {
-        my @time = gmtime($time);
-        sprintf(
-            "%04d-%02d-%02dT%02d%02d%02d.%09dZ",
-            $time[5]+1900,
-            $time[4]+1,
-            $time[3],
-            $time[2],
-            $time[1],
-            $time[0],
-            ($time - int($time))*1_000_000_000,
-        );
-    };
-
-    my ($fpath_out, $fpath_meta);
-    my ($fh_out, $fh_meta);
-    {
-        require Fcntl;
-        my $counter = -1;
-        while (1) {
-            if ($counter++ >= 10_000) {
-                warn "Can't create file to save program output, skipped saving program output";
-                return;
-            }
-            my $fpath_out  = "$dir/" . ($counter ? "$fmttime.out.$counter"  : "$fmttime.out");
-            my $fpath_meta = "$dir/" . ($counter ? "$fmttime.meta.$counter" : "$fmttime.meta");
-            if ((-e $fpath_out) || (-e $fpath_meta)) {
-                next;
-            }
-            unless (sysopen $fh_out , $fpath_out , Fcntl::O_WRONLY() | Fcntl::O_CREAT() | Fcntl::O_EXCL()) {
-                warn "Can't create file '$fpath_out' to save program output: $!, skipped saving program output";
-                return;
-            }
-            unless (sysopen $fh_meta, $fpath_meta, Fcntl::O_WRONLY() | Fcntl::O_CREAT() | Fcntl::O_EXCL()) {
-                warn "Can't create file '$fpath_meta' to save program output meta information: $!, skipped saving program output";
-                unlink $fpath_out;
-                return;
-            }
-            last;
-        }
-    }
-
-    require JSON::MaybeXS;
-    state $json = JSON::MaybeXS->new->allow_nonref;
-
-    my $out = $self->cleanser->clone_and_clean($r->{res});
-    my $meta = {
-        time        => $time,
-        pid         => $$,
-        argv        => $r->{orig_argv},
-        read_env    => $r->{read_env},
-        read_config => $r->{read_config},
-        read_config_files => $r->{read_config_files},
-    };
-    log_trace "Saving program output to %s ...", $fpath_out;
-    print $fh_out $json->encode($out);
-    log_trace "Saving program output's meta information to %s ...", $fpath_meta;
-    print $fh_meta $json->encode($meta);
-}
-
-sub display_result {
-    require Data::Sah::Util::Type;
-
-    my ($self, $r) = @_;
-
-    my $meta = $r->{meta};
-    my $res = $r->{res};
-    my $fres = $r->{fres};
-    my $resmeta = $res->[3] // {};
-
-    my $handle = $r->{output_handle};
-
-    my $sch = $meta->{result}{schema};
-    my $type = Data::Sah::Util::Type::get_type($sch) // '';
-
-    if ($resmeta->{stream} // $meta->{result}{stream}) {
-        my $x = $res->[2];
-        if (ref($x) eq 'CODE') {
-            if (Data::Sah::Util::Type::is_simple($sch)) {
-                while (defined(my $l = $x->())) {
-                    print $l;
-                    print "\n" unless $type eq 'buf';
-                }
-            } else {
-                require JSON::MaybeXS;
-                state $json = JSON::MaybeXS->new->allow_nonref;
-                if ($self->use_cleanser) {
-                    while (defined(my $rec = $x->())) {
-                        print $json->encode(
-                            $self->cleanser->clone_and_clean($rec)), "\n";
-                    }
-                } else {
-                    while (defined(my $rec = $x->())) {
-                        print $json->encode($rec), "\n";
-                    }
-                }
-            }
-        } else {
-            die "Result is a stream but no coderef provided";
-        }
-    } else {
-        print $handle $fres;
-        if ($r->{viewer}) {
-            require ShellQuote::Any::Tiny;
-            my $cmd = $r->{viewer} ." ". ShellQuote::Any::Tiny::shell_quote($r->{viewer_temp_path});
-            system $cmd;
-        }
     }
 }
 
